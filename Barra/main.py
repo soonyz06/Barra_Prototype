@@ -24,7 +24,6 @@ class Loader:
             print("Dataframe is empty")
             return None
         history = pl.from_pandas(history, include_index=True)
-        history = history.drop("dividends")
         history = history.with_columns(pl.col("date").cast(pl.Date))
         return history
 
@@ -33,43 +32,99 @@ class Loader:
         if len(symbols)==0: return None
         print(f"Fetching Profile -> {len(symbols)}")
         ticker = Ticker(symbols, asynchronous=True)
-        profile = pl.DataFrame({"symbol": key, **val} for key, val in ticker.summary_profile.items()).select(["symbol", "country", "industry", "sector"])
+        pf = ticker.summary_profile
+        profile = pl.DataFrame({"symbol": key, **val} for key, val in pf.items()).select(["symbol", "country", "industry", "sector"])
         return profile
-        
-    def load_data(self, symbols, dirname, fetch_func, other_args=None): #add batching + updating + compact 
+
+    def fetch_generator(self, symbols, fetch_func, other_args, batch_size, schema): 
+        for i in range(0, len(symbols), batch_size):
+            batch = symbols[i:i+batch_size]
+            batch_df = fetch_func(batch, **other_args) ##ERROR handling: output + retry logic (while>1, batch//2)
+            time.sleep(0.1)
+            if batch_df is not None and not batch_df.is_empty():
+                if schema is not None:
+                    for col, dtype in schema.items():
+                        if col not in batch_df.columns:
+                            batch_df = batch_df.with_columns(pl.lit(None).cast(dtype).alias(col))
+                    batch_df = batch_df.select(list(schema.keys())).cast(schema)
+                yield batch_df 
+                
+    def load_data(self, symbols, dirname, fetch_func, other_args=None, schema=None): ##add refresh/updating
         if other_args is None: other_args = {}
         dirpath = self.basepath / dirname
         dirpath.mkdir(exist_ok=True, parents=True)
+
+        batch_size = 10
+        buffer_limit=100
+        
         existing_symbols = set()
-
         if list(dirpath.glob("*.parquet")):
-            try:
-                lf = (pl.scan_parquet(dirpath / "*.parquet").select("symbol").unique().collect())
-                existing_symbols = set(lf["symbol"])
-            except (FileNotFoundError, pl.exceptions.ComputeError):
-                pass
-            except Exception as e:
-                print(f"[ERROR] Failed to load files due to: {e}")
+            existing_symbols = set(
+                pl.scan_parquet(dirpath / "*.parquet")
+                .select("symbol").unique().collect().get_column("symbol")
+            )
 
-        missing_symbols = list(set(symbols) - existing_symbols)
+        missing_symbols = [s for s in symbols if s not in existing_symbols]
         if missing_symbols:
-            #print(f"Fetching missing symbols -> {len(missing_symbols)}")
-            missing_df = fetch_func(missing_symbols, **other_args)
+            buffer = []
+            buffer_size = 0
+            
+            for batch_df in self.fetch_generator(missing_symbols, fetch_func, other_args, batch_size, schema): #seperate fetch and orchestration logic
+                buffer.append(batch_df)
+                buffer_size += len(batch_df) ##is num rows the best way to do this? prob not
 
-            if missing_df is not None and not missing_df.is_empty():
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                missing_df = missing_df.with_columns(
-                    pl.lit(ts).alias("ts")
-                )
-                missing_df.write_parquet(dirpath / f"{ts}.parquet")
+                if buffer_size >= buffer_limit: #trade off: num I/O vs RAM usage
+                    self.write_data(buffer, dirpath, "batch", schema) 
+                    buffer = []
+                    buffer_size = 0
+                    
+            if buffer:
+                self.write_data(buffer, dirpath, "batch", schema)
+        return pl.scan_parquet(dirpath / "*.parquet")
+                
+    def write_data(self, buffer, dirpath, filename, schema=None): 
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filepath = dirpath / f"{filename}_{ts}.parquet"
+        temppath = filepath.with_suffix(".tmp")
 
-        if not list(dirpath.glob("*.parquet")):
-            print("[ERROR] Failed load.")
-            return None
-    
-        lf =  pl.scan_parquet(dirpath / "*.parquet")
-        return lf
+        df = pl.concat(buffer)
+        if df.is_empty():
+            print("[ERROR] No data to write.")
+            return self
 
+        df = df.with_columns(pl.col("ts").fill_null(ts))
+        if schema is not None: df = df.cast(schema)
+        df.write_parquet(temppath) #write-rename is safer
+        temppath.rename(filepath)
+        print(f"[SUCCESS] Wrote {len(df):,} rows to {filepath.name}")
+        return self
+
+    def compact_data(self, dirname, schema):
+        dirpath = self.basepath / dirname
+        batches = list(dirpath.glob("batch_*.parquet"))
+
+        files_threshold = 20
+        file_count = len(batches)
+        if file_count < files_threshold:  
+            return self
+
+        lf = pl.scan_parquet(dirpath / "*.parquet")
+        cols = lf.collect_schema().names()
+        identifiers = [i for i in self.identifiers if i in cols]
+        lf = lf.sort("ts", descending=False).unique(subset=identifiers, keep="last")
+        df = lf.collect()
+
+        self.write_data([df], dirpath, "master", schema=schema)
+        for f in batches:
+            f.unlink()
+
+        for tmp_file in dirpath.glob("*.tmp"):
+            try:
+                tmp_file.unlink()
+            except Exception as e:
+                print(f"[WARNING] Could not delete {tmp_file}: {e}")
+        return self        
+           
 class Processor:
     def __init__(self):
         self.basepath = Path.cwd() / "data" 
@@ -174,7 +229,9 @@ class Processor:
             .pipe(self.rescale_factors, [composite])
         )
 
-symbols = ["AAPL", "META", "MSFT", "WMT", "COST", "NVDA"]
+symbols = ["AAPL", "META", "MSFT", "WMT", "COST", "NVDA", "TSLA", "AVGO", "NFLX", "LLY", "JNJ", "AMD", "RBLX", "BMBL", "ABVX", "PDD", "CHA", "SRPT", \
+           "IONQ", "QUBT", "QBTS", "BABA", "BIDU", "NVO", "UNH", "MHO", "HMC", "GS", "MS", "JPM", "BAC", "C", "AXP", "COIN", "AEO", "GAP", "CAL", "SCVL", \
+           "OKLO", "PLTR", "HIMS"] #use sampling
 factor_defs = {
     "MOM": [["UMD_12_1", "UMD_6_1", "UMD_3_1"], 21, 1], #skips to ignore STR
     "VAL": [["HML_3", "HML_5"], 21*12, -1]
@@ -187,12 +244,36 @@ processor = Processor()
 
 
 #Loading
-lf = loader.load_data(symbols, "Profile", fetch_func=loader.fetch_profile) 
-pf = lf.unique(subset=["symbol"], keep="last").drop("ts") #assuming read in order
-#lf = lf.sort("ts", descending=False).group_by(["symbol", "date"]).last()
+pf_schema = {
+    "symbol": pl.Utf8,
+    "country": pl.Utf8,
+    "industry": pl.Utf8,
+    "sector": pl.Utf8,
+    "ts": pl.Utf8
+}
 
-lf = loader.load_data(symbols, "History", fetch_func=loader.fetch_history, other_args={"period": "max"})
-his = lf.unique(subset=["symbol", "date"], keep="last").drop("ts").drop(['open', 'high', 'low', 'volume', 'close', 'splits'])
+his_schema = {
+    "symbol": pl.Utf8,
+    "date": pl.Date,
+    "open": pl.Float64,
+    "high": pl.Float64,
+    "low": pl.Float64,
+    "close": pl.Float64,
+    "volume": pl.Int64,
+    "adjclose": pl.Float64,
+    "splits": pl.Float64,
+    "ts": pl.Utf8
+}
+
+loader.compact_data("Profile", pf_schema)
+loader.compact_data("History", his_schema)
+
+lf = loader.load_data(symbols, "Profile", fetch_func=loader.fetch_profile, schema=pf_schema)
+pf = lf.sort("ts", descending=False).unique(subset=["symbol"], keep="last").drop("ts") 
+
+lf = loader.load_data(symbols, "History", fetch_func=loader.fetch_history, other_args={"period": "max"}, schema=his_schema)
+his = lf.sort("ts", descending=False).unique(subset=["symbol", "date"], keep="last")
+his = his.drop("ts").drop(['open', 'high', 'low', 'volume', 'close', 'splits'])
 
 
 #Processing
@@ -218,12 +299,13 @@ for composite, (factors, _, _) in factor_defs.items():
     lf = processor.process_factor(lf, factors, composite)
 
 df = lf.collect()
+print("")
 print(df.columns)
 print(df.tail())
+print(df.shape)
 
 
 #unit test, smooth forward fill
-#sampling
 
 
 
