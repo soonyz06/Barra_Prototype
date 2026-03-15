@@ -16,4 +16,5 @@
 
  Risk
   - Factor Risk Contribution = Signal exposure x std(F)
+  - Factor covariance matrix for risk decomposition (Ex-Ante)
   - MVO using factor returns instead of asset returns (nxn to kxk)
