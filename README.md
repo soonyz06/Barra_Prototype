@@ -3,7 +3,7 @@ not refined
 # Data Pipeline
 - Price-derived factors are temporarily used as a proxy for fundamental factors (Asness, C. S., Moskowitz, T. J., & Pedersen, L. H. (2013). Value and Momentum Everywhere. The Journal of Finance)
 - Polars for lazy, partitioning, batch I/O operations, versioning, compact job, schema enforcement, etc
-- Regressions: Time series, cross sectional, orthogonalisation, etc
+- Regressions: Time series, cross sectional, orthogonalisation/purification, etc
 
 # Applications
 - Hedging: Long BMBL -> unintended bet on VAL -> Long X BMBL and Short Y SRPT -> isolate idio alpha
