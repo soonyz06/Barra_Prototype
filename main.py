@@ -101,8 +101,8 @@ def construct_factor_returns(filename, symbols, start_date, end_date, benchmark_
     factor_ret.write_parquet(basepath / f"{filename}.parquet")
 
 rng = np.random.default_rng(seed=42)
-symbols = list(rng.choice(sp500_tickers, size=500, replace=False))
-construct_factor_returns("Test2", symbols, start_date=date(2025, 3, 15), end_date=date(2026, 3, 15), benchmark_symbol="SPY")
+symbols = list(rng.choice(sp500_tickers, size=100, replace=False))
+construct_factor_returns("Test2", symbols, start_date=date(2020, 1, 1), end_date=date(2025, 1, 1), benchmark_symbol="SPY")
 
 
 # -----//Performance Attribution//----- 
