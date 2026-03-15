@@ -23,5 +23,6 @@ not refined
 
 # Factor Returns
 ![me](Figure_0.png)
+![hi](Figure_1.png)
 ![barra](Figure_2.png)
-- Differ quite a bit due to only small sample size, different 'definition' of factors, i haven't scaled by MC (WLS), MKT is scuffed, etc
+- Differ quite a bit due to only small sample size, different 'definition' of factors, i haven't scaled by MC (WLS), scuffed so prob some bug with neutralise logic or something somwhere, etc
