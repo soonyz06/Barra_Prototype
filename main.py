@@ -190,7 +190,7 @@ class Processor:
         days = df.select(pl.col("date").n_unique()).item()
         symbols = df.select(pl.col("symbol").n_unique()).item()
         print(f"[INFO]Running cross-sectional regressions across {days:,} days and {symbols} assets: ")
-        print(f"[INFO]{len(factors)} composite factors against {len(risk_factors['categorical'])} categorical and {len(risk_factors['numerical'])} numerical risk factors")
+        print(f"[INFO]Neutralising {len(factors)} factors against {len(risk_factors['categorical'])} categorical and {len(risk_factors['numerical'])} numerical risk factors")
         
         def _cross_sectional_regression(group_df):
             beta = self.train_regression(group_df, X_cols, y_cols)
@@ -229,10 +229,37 @@ class Processor:
             .pipe(self.median_imputation, factors)
         )
 
+    def add_mkt_beta(self, df, benchmark):
+        min_obs = 0.8
+        vol_days = 3 * 252
+        corr_days = 5 * 252
+        b = 1
+        k = 0.33
+        
+        return (
+            df.sort(["symbol", "date"])
+            .join(benchmark, on="date", how="left")
+            .with_columns([
+                pl.col("log_ret").rolling_std(vol_days, min_samples=int(vol_days * min_obs))
+                  .over("symbol").alias("asset_vol"),
+                pl.col("mkt_ret").rolling_std(vol_days, min_samples=int(vol_days * min_obs))
+                  .over("symbol").alias("mkt_vol"),
+                pl.rolling_corr(pl.col("log_ret"), pl.col("mkt_ret"), window_size=corr_days, min_samples=int(corr_days * min_obs))
+                  .over("symbol").alias("corr")
+            ])
+            .with_columns( #cov/vol equivalent to specific case of OLS
+                MKT = (pl.col("corr") * (pl.col("asset_vol") / pl.col("mkt_vol"))) * (1-k) + k * b #bayesian shrinkage
+            )
+            .drop(["mkt_ret", "asset_vol", "mkt_vol", "corr"])
+        )
+
+
 #-----//Params//-----
-start_date = date(2000, 1, 1)
+start_date = date(2015, 1, 1)
+end_date = date(2025, 1, 1)
 rng = np.random.default_rng(seed=42)
 symbols = rng.choice(sp500_tickers, size=1, replace=False)
+benchmark_symbol = "MSCI"
 
 factor_defs = {
     "MOM": [["UMD_12_1", "UMD_6_1", "UMD_3_1"], 21, 1], 
@@ -263,7 +290,7 @@ his_schema = {
 }
 
 categories = [c for c in pf_schema.keys() if c not in ["symbol", "ts"]]
-composite_factors = list(factor_defs.keys())
+composite_factors = list(factor_defs.keys())+["MKT"]
 risk_factors = {"categorical": categories, "numerical": []}
 
 
@@ -285,6 +312,8 @@ if 1==1:
     #loader.compact_data("History", his_schema)
 
     lf = processor.log_transform(his.collect())
+    benchmark = (lf.filter(pl.col("symbol") == benchmark_symbol).select([pl.col("date"), pl.col("log_ret").alias("mkt_ret")]))
+    lf = lf.filter(pl.col("symbol")!=benchmark_symbol)
     ret = lf.collect()
 
     #Factor Construction
@@ -294,14 +323,15 @@ if 1==1:
             lf = processor.add_log_change(factor, lf, int(val[1])*unit, int(val[2])*unit, k=k)
     for composite, (factors, _, _) in factor_defs.items():
         lf = processor.process_components(lf, factors, composite)
+    lf = processor.add_mkt_beta(lf, benchmark)
 
     #Factor Preprocessing
-    lf = lf.filter(pl.col("date")>=start_date)
-    lf = lf.join(pf, on="symbol", how="left").sort(["date", "symbol"])
+    lf = lf.filter((pl.col("date")>=start_date) & (pl.col("date")<=end_date))
+
+    lf = lf.join(pf, on="symbol", how="left")
     lf = lf.select(["symbol", "date"]+composite_factors+sum(risk_factors.values(), []))
     lf = processor.process_composites(lf, composite_factors, risk_factors).sort(["symbol", "date"])
-
-    #plotter.plot_null_heatmap(lf.collect())
+    
     lf = lf.select(["symbol", "date"]+composite_factors)
     lf_lagged = lf.with_columns(pl.all().exclude(["symbol", "date"]).shift(1).over("symbol"))
     lf = lf_lagged.join(ret.lazy(), on=["symbol", "date"], how="left")
@@ -311,8 +341,10 @@ if 1==1:
     dirpath.mkdir(exist_ok=True, parents=True)
     
     factor_ret = processor.get_factor_returns(lf, composite_factors, ["log_ret"])
-    loader.write_data([factor_ret], dirpath)
+    #loader.write_data([factor_ret], dirpath)
+    plotter.plot_factor_performance(factor_ret, composite_factors)
 
+"""
 dirpath = Path.cwd() / "data" / "Factor_Returns"
 dirpath.mkdir(exist_ok=True, parents=True)
 df = pl.scan_parquet(dirpath / "*.parquet").drop("ts").collect()
@@ -331,7 +363,7 @@ omega = np.cov(df.select(composite_factors).to_numpy().T)
 print(omega)
 
 #unit test, smooth forward fill
-
+"""
 
 
 
