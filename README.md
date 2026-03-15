@@ -29,6 +29,6 @@ BMBL
 SRPT  
 ![srpt](img/SRPT.png)
 - SRPT's returns over the past year are not well explained by systematic factors
-- Idiosyncratic: This may be due to the deaths of their patients leading to the distribution of Elevidys being temporarily halted and from fears of it being pulled from the market 
+- Idiosyncratic: Deaths of their patients leading to the distribution of Elevidys being temporarily halted and from fears of it being pulled from the market 
 
 
