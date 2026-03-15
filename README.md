@@ -27,6 +27,6 @@ BMBL
 
 SRPT  
 ![srpt](img/SRPT.png)
-- SRPT and BMBL have exposures to VAL and MKT 
+- SRPT and BMBL both have exposures to VAL and MKT 
 
 
