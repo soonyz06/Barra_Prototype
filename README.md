@@ -22,6 +22,5 @@ not refined
   - MVO using factor returns instead of asset returns (nxn to kxk)
 
 # Factor Returns
-![barra](Figure_1.png)
 ![barra](Figure_2.png)
 - Differ quite a bit due to only small sample size, different 'definition' of factors, i haven't scaled by MC (WLS) + neutralise market beta, etc
