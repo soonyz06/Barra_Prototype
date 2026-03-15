@@ -230,7 +230,7 @@ class Processor:
         )
 
     def add_mkt_beta(self, df, benchmark):
-        min_obs = 0.8
+        min_obs = 0.7
         vol_days = 3 * 252
         corr_days = 5 * 252
         b = 1
@@ -255,16 +255,16 @@ class Processor:
 
 
 #-----//Params//-----
-start_date = date(2015, 1, 1)
-end_date = date(2025, 1, 1)
+start_date = date(2025, 1, 1)
+end_date = date(2026, 3, 15)
 rng = np.random.default_rng(seed=42)
-symbols = rng.choice(sp500_tickers, size=1, replace=False)
-benchmark_symbol = "MSCI"
+benchmark_symbol = "SPY"
+symbols = list(rng.choice(sp500_tickers, size=1, replace=False))#+[benchmark_symbol]
 
 factor_defs = {
-    "MOM": [["UMD_12_1", "UMD_6_1", "UMD_3_1"], 21, 1], 
+    "MOM": [["UMD_12_1", "UMD_6_1"], 21, 1], 
     "VAL": [["HML_3", "HML_5"], 21*12, -1],
-    "STR": [["STR_1"], 21, -1]
+    "STR": [["STR_21", "STR_10"], 1, -1]
 }
 #21 trading days per month
 
