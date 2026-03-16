@@ -1,8 +1,8 @@
 not refined
 
 # Data Pipeline
-- Price-derived factors are temporarily used as a proxy for fundamental factors (Asness, C. S., Moskowitz, T. J., & Pedersen, L. H. (2013). Value and Momentum Everywhere. The Journal of Finance)
 - Polars for lazy, partitioning, batch I/O operations, versioning, compact job, schema enforcement, etc
+- Price-derived factors are temporarily used as a proxy for fundamental factors (Asness, C. S., Moskowitz, T. J., & Pedersen, L. H. (2013). Value and Momentum Everywhere. The Journal of Finance)
 - Regressions: Time series, cross sectional, orthogonalisation/purification, etc
 
 # Applications
