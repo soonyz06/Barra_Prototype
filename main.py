@@ -35,7 +35,7 @@ factor_defs = {
     "MOM": [["UMD_12_1", "UMD_6_1"], 21, 1], 
     "VAL": [["HML_5", "HML_3"], 21*12, -1],
     "STR": [["STR_21", "STR_10"], 1, -1]
-}
+} #i know that this is incorrect use of HML and UMD as they are factor mimicking portfolios not factors, but i just prefer to name it like this :)
 categories = [c for c in pf_schema.keys() if c not in ["symbol", "ts"]]
 composite_factors = list(factor_defs.keys())+["MKT"]
 risk_factors = {"categorical": categories, "numerical": []}
