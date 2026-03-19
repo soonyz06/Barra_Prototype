@@ -35,6 +35,8 @@ factor_defs = {
     "MOM": [["UMD_12_1", "UMD_6_1"], 21, 1], 
     "VAL": [["HML_5", "HML_3"], 21*12, -1],
     "STR": [["STR_21", "STR_10"], 1, -1],
+    "MKT": [["MKT_3_5"], 1, 1],
+    "BAB": [["BAB_3_5"], 1, -1]
 }
 categories = [c for c in pf_schema.keys() if c not in ["symbol", "ts"]]
 composite_factors = list(factor_defs.keys())
@@ -82,16 +84,16 @@ def construct_exposures(symbols, start_date, end_date, benchmark_symbol="MSCI", 
     for factors, unit, k in factor_defs.values():
         for factor in factors:
             val = factor.split("_") + [0]
-            lf = processor.add_log_change(factor, lf, int(val[1])*unit, int(val[2])*unit, k=k)
-    """
-    lf = processor.add_mkt_beta(lf, benchmark).rename({"MKT": "BAB_5_3"})
-    lf = processor.reverse_winsor(lf, ["BAB_5_3"], p=0.1).with_columns(BAB_5_3 = pl.col("BAB_5_3")*-1)
-    factor_defs["BAB"] = [["BAB_5_3"], 1, 1] 
-    composite_factors.append("BAB")
-    """
+            if val[0] == "MKT":
+                lf = processor.add_mkt_beta(factor, lf, benchmark, int(val[1]), int(val[2]), 1)
+            elif val[0] == "BAB":
+                lf = processor.add_mkt_beta(factor, lf, benchmark, int(val[1]), int(val[2]), -1) #can reuse
+                lf = processor.reverse_winsor(lf, [factor], p=0.33)
+            else:
+                lf = processor.add_log_change(factor, lf, int(val[1])*unit, int(val[2])*unit, k=k)
+    
     for composite, (factors, _, _) in factor_defs.items():
         lf = processor.process_components(lf, factors, composite)
-
 
     #Factor Preprocessing
     lf = lf.filter((pl.col("date")>=start_date) & (pl.col("date")<=end_date))
@@ -134,12 +136,10 @@ def vol_targetting(df, cols, target_annual_vol_pct=None):
     return df
 
 rng = np.random.default_rng(seed=42)
-#symbols = list(rng.choice(sp500_tickers, size=300, replace=False))
-symbols = sp500_tickers[:150]
+symbols = list(rng.choice(sp500_tickers, size=300, replace=False))
+#symbols = sp500_tickers[:150]
 exposures = construct_exposures(symbols, start_date=date(2015, 1, 1), end_date=date(2026, 1, 1), benchmark_symbol="SPY", FETCH=False)
-factor_ret = processor.get_factor_returns(exposures, composite_factors, ["log_ret"]) ##Cross Sectional Regressions at each time stepfactor_ret = vol_targetting(factor_ret, composite_factors, target_annual_vol_pct=0.2)
-factor_ret = vol_targetting(factor_ret, composite_factors, target_annual_vol_pct=0.2)
-composite_factors.append("MKT") #temp fix
+factor_ret = processor.get_factor_returns(exposures, composite_factors, ["log_ret"]) ##Cross Sectional Regressions at each time step
 
 factor_ret.write_parquet(basepath / "Test1.parquet")
 plotter.plot_factor_performance(factor_ret, composite_factors)
@@ -187,7 +187,8 @@ def load_portfolio(symbols):
     ])
         
 
-factor_ret = pl.read_parquet(basepath / "Test1.parquet") #could add ewma or smth
+#factor_ret = pl.read_parquet(basepath / "Test1.parquet") #could add ewma or smth, idk what im doing wrong
+factor_ret = vol_targetting(factor_ret, composite_factors, target_annual_vol_pct=0.2) #betas make more economical sense
 
 portfolio_df = load_portfolio(["SPY"])
 model, result_df = decompose_returns(portfolio_df, factor_ret, date(2025, 1, 1), date(2026, 1, 1))

@@ -172,8 +172,8 @@ class Processor:
 
     def get_factor_returns(self, lf, X_cols, y_cols):
         schema = lf.select(["date", *X_cols]).collect_schema()
-        lf = lf.with_columns(pl.lit(1.0).alias("MKT"))
-        X_cols = X_cols + ["MKT"]
+        lf = lf.with_columns(pl.lit(1.0).alias("intercept"))
+        X_cols = X_cols + ["intercept"]
         
         def _cross_sectional_regression(group_df):
             betas = self.train_regression(group_df, X_cols, y_cols).flatten() #log returns per 1σ factor tilt
@@ -204,12 +204,12 @@ class Processor:
             .pipe(self.median_imputation, factors)
         )
 
-    def add_mkt_beta(self, df, benchmark):
+    def add_mkt_beta(self, factor, df, benchmark, vol, corr, k=1):
         min_obs = 0.7
-        vol_days = 3 * 252
-        corr_days = 5 * 252
-        b = 1
-        k = 0.33
+        vol_days = vol * 252
+        corr_days = corr * 252
+        prior_b = 1
+        w = 0.67
         
         return (
             df.sort(["symbol", "date"])
@@ -223,7 +223,7 @@ class Processor:
                   .over("symbol").alias("corr")
             ])
             .with_columns( #cov/vol equivalent to specific case of OLS
-                MKT = (pl.col("corr") * (pl.col("asset_vol") / pl.col("mkt_vol"))) * (1-k) + k * b #bayesian shrinkage
+                (((w*(pl.col("corr") * (pl.col("asset_vol") / pl.col("mkt_vol"))) + (1-w)*prior_b)) * k).alias(factor) #bayesian shrinkage
             )
             .drop(["mkt_ret", "asset_vol", "mkt_vol", "corr"])
         )
